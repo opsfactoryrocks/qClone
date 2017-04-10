@@ -62,7 +62,8 @@ func getAllUserRepositories() ([]Repository, error) {
 	return repositories, nil
 }
 
-func isBundle() bool {}
+func isBundle(name string) bool {return true}
+
 func isUserRepository(name string, repositories []Repository) bool {
 	for _, r := range repositories {
 		if name == r.Name {
@@ -84,11 +85,20 @@ func parseCommand() {
 		}
 	case 1:
 		fmt.Println("Clone repository")
-		if isUserRepository(arguments[0]) {
+		if isBundle(arguments[0]) {
+			fmt.Println("I would clone a bundle: %s\n", arguments[0])
+		}
+		if isUserRepository(arguments[0], repositories) {
 			fmt.Printf("I would clone: %s\n", arguments[0])
 		}
 	case 2:
-		fmt.Printf("Arguments: %s,%s\n", arguments[0], arguments[1])
+		fmt.Println("Clone a bundle")
+		if isBundle(arguments[0]) {
+			fmt.Println("I would clone a bundle '%s' to '%s'\n", arguments[0], arguments[1])
+		}
+		if isUserRepository(arguments[0], repositories) {
+			fmt.Printf("I would clone: '%s' to '%s'\n", arguments[0], arguments[1])
+		}
 	}
 }
 
