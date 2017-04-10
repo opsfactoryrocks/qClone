@@ -1,64 +1,97 @@
 package main
 
 import (
-	"bufio"
-	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
-	"strconv"
-	"strings"
-
-	"github.com/google/go-github/github"
-	"golang.org/x/oauth2"
-	"gopkg.in/src-d/go-git.v4"
 )
 
-func main() {
-	ctx := context.Background()
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: os.Getenv("GITHUB_TOKEN")},
-	)
-	tc := oauth2.NewClient(ctx, ts)
+const QCLONE_VERSION = "0.0.1"
+const QCLONE_DEFAULT_HOME = "~/git"
 
-	client := github.NewClient(tc)
+type Bundle struct {
+	Name         string
+	Repositories []Repository
+}
+type Repository struct {
+	URL  string `json:"git_url"`
+	Name string `json:"name"`
+}
 
-	// list all repositories for the authenticated user
-	repos, _, _ := client.Repositories.List(ctx, "", nil)
-	if len(repos) > 0 {
-		for {
-			fmt.Println("Select a repository to clone:")
-			for i, repo := range repos {
-				fmt.Println(i, ": ", *repo.Name)
-			}
+func checkErrorAndPanic(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
 
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Printf("#: ")
-			selection, _ := reader.ReadString('\n')
-			if selection == "q\n" {
-				break
-			}
+func getAllUserRepositories() ([]Repository, error) {
+	var err error
 
-			toNumClean := strings.Split(selection, "\n")[0]
-			toNum, err := strconv.Atoi(toNumClean)
-			if err != nil {
-				panic(err)
-			}
-			if toNum < 0 || toNum > len(repos) {
-				fmt.Println("Not a valid selection")
-				continue
-			} else {
-				fmt.Println("You selected: ", *repos[toNum].Name, "(", *repos[toNum].URL, ")")
+	userToken := os.Getenv("QCLONE_GITHUB_TOKEN")
+	if userToken == "" {
+		return nil, errors.New("No GitHub token. Stopping")
+	}
 
-				_, err := git.PlainClone("/tmp/", false, &git.CloneOptions{
-					URL:      *repos[toNum].CloneURL,
-					Progress: os.Stdout,
-				})
+	httpClient := &http.Client{}
+	req, err := http.NewRequest("GET", "https://api.github.com/user/repos", nil)
+	checkErrorAndPanic(err)
+	req.Header.Add("User-Agent", "qClone "+QCLONE_VERSION)
+	req.Header.Add("Authorization", "token "+userToken)
 
-				if err != nil {
-					panic(err)
-				}
-				break
-			}
+	repositories := make([]Repository, 0)
+	for i := 1; ; i++ {
+		targetUrl, err := url.Parse(fmt.Sprintf("https://api.github.com/user/repos?page=%d", i))
+		checkErrorAndPanic(err)
+
+		req.URL = targetUrl
+		resp, err := httpClient.Do(req)
+		checkErrorAndPanic(err)
+
+		_repositories := make([]Repository, 0)
+		jsonDecoder := json.NewDecoder(resp.Body)
+		err = jsonDecoder.Decode(&_repositories)
+		checkErrorAndPanic(err)
+		if len(_repositories) == 0 {
+			break
+		}
+		repositories = append(repositories, _repositories...)
+	}
+	return repositories, nil
+}
+
+func isBundle() bool {}
+func isUserRepository(name string, repositories []Repository) bool {
+	for _, r := range repositories {
+		if name == r.Name {
+			return true
 		}
 	}
+
+	return false
+}
+
+func parseCommand() {
+	arguments := os.Args[1:]
+	repositories, err := getAllUserRepositories()
+	checkErrorAndPanic(err)
+	switch len(arguments) {
+	case 0:
+		for i, r := range repositories {
+			fmt.Printf("[%d] %s\n", i+1, r.Name)
+		}
+	case 1:
+		fmt.Println("Clone repository")
+		if isUserRepository(arguments[0]) {
+			fmt.Printf("I would clone: %s\n", arguments[0])
+		}
+	case 2:
+		fmt.Printf("Arguments: %s,%s\n", arguments[0], arguments[1])
+	}
+}
+
+func main() {
+	parseCommand()
 }
